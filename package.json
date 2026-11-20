@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "echo Web assets ready",
+    "build": "mkdir -p www && cp index.html manifest.json sw.js icon.svg icon-96.png icon-144.png icon-192.png icon-256.png icon-512.png www/",
     "android": "npx cap sync android"
   },
   "dependencies": {

@@ -1,7 +1,7 @@
 {
   "appId": "ru.furniture.calculator",
   "appName": "Мебельный калькулятор",
-  "webDir": ".",
+  "webDir": "www",
   "server": {
     "androidScheme": "https"
   },
