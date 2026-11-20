@@ -1,0 +1,11 @@
+{
+  "appId": "ru.furniture.calculator",
+  "appName": "Мебельный калькулятор",
+  "webDir": ".",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}
