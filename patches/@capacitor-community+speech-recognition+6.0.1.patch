@@ -1,25 +1,18 @@
 diff --git a/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java b/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java
 --- a/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java
 +++ b/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java
-@@ -81,8 +81,8 @@
-     @PluginMethod
-     public void stop(final PluginCall call) {
+@@ -91,3 +91,3 @@
          try {
 -            stopListening();
 +            stopListening(call);
          } catch (Exception ex) {
-            call.reject(ex.getLocalizedMessage());
-         }
-     }
-@@ -193,6 +193,6 @@
-         }
-     }
+@@ -214,4 +214,4 @@
 -    private void stopListening() {
 +    private void stopListening(final PluginCall call) {
          bridge
              .getWebView()
              .post(
-@@ -202,9 +202,14 @@
+@@ -221,7 +221,12 @@
                          if (SpeechRecognition.this.listening) {
                              speechRecognizer.stopListening();
                              SpeechRecognition.this.listening(false);
@@ -33,9 +26,7 @@ diff --git a/node_modules/@capacitor-community/speech-recognition/android/src/ma
 +                            call.reject(ex.getLocalizedMessage());
 +                        }
                      } finally {
-                         SpeechRecognition.this.lock.unlock();
-                     }
-@@ -265,4 +270,4 @@
+@@ -289,4 +294,4 @@
          @Override
          public void onError(int error) {
 -            SpeechRecognition.this.stopListening();
