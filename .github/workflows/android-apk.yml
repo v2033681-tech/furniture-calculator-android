@@ -21,12 +21,7 @@ jobs:
 
       - run: npm install
 
-      - name: Prepare web files
-        run: |
-          mkdir -p www
-          cp index.html manifest.json sw.js www/
-          cp icon-*.png icon.svg www/
-          node -e "let c=require('./capacitor.config.json');c.webDir='www';require('fs').writeFileSync('capacitor.config.json',JSON.stringify(c,null,2))"
+      - run: npm run build
 
       - run: npx cap add android
 

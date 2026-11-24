@@ -1,0 +1,43 @@
+diff --git a/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java b/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java
+--- a/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java
++++ b/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java
+@@ -81,8 +81,8 @@
+     @PluginMethod
+     public void stop(final PluginCall call) {
+         try {
+-            stopListening();
++            stopListening(call);
+         } catch (Exception ex) {
+            call.reject(ex.getLocalizedMessage());
+         }
+     }
+@@ -193,6 +193,6 @@
+         }
+     }
+-    private void stopListening() {
++    private void stopListening(final PluginCall call) {
+         bridge
+             .getWebView()
+             .post(
+@@ -202,9 +202,14 @@
+                         if (SpeechRecognition.this.listening) {
+                             speechRecognizer.stopListening();
+                             SpeechRecognition.this.listening(false);
+                         }
++                        if (call != null) {
++                            call.resolve();
++                        }
+                     } catch (Exception ex) {
+-                        throw ex;
++                        if (call != null) {
++                            call.reject(ex.getLocalizedMessage());
++                        }
+                     } finally {
+                         SpeechRecognition.this.lock.unlock();
+                     }
+@@ -265,4 +270,4 @@
+         @Override
+         public void onError(int error) {
+-            SpeechRecognition.this.stopListening();
++            SpeechRecognition.this.stopListening(null);
+             String errorMssg = getErrorText(error);

@@ -3,14 +3,18 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "mkdir -p www && cp index.html manifest.json sw.js icon.svg icon-96.png icon-144.png icon-192.png icon-256.png icon-512.png www/",
-    "android": "npx cap sync android"
+    "build": "node scripts/build.mjs",
+    "android": "npx cap sync android",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@capacitor/core": "^6.2.0",
-    "@capacitor/android": "^6.2.0"
+    "@capacitor/android": "^6.2.0",
+    "@capacitor-community/speech-recognition": "6.0.1"
   },
   "devDependencies": {
-    "@capacitor/cli": "^6.2.0"
+    "@capacitor/cli": "^6.2.0",
+    "esbuild": "^0.24.2",
+    "patch-package": "8.0.0"
   }
 }

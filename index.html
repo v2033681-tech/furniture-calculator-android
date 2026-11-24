@@ -9,7 +9,7 @@
 <section class="card"><h2>5. Фото заказа</h2><label>Категория</label><select id="category"><option>Помещение</option><option>Фурнитура</option><option>Материалы / пластик / ЛДСП</option><option>Столешница</option><option>Другое</option></select><label>Выбрать фото</label><input id="photo" type="file" accept="image/*" multiple><label>Подпись к фото</label><input id="caption" placeholder="Например: декор дуб, ручка 160 мм"><div id="photoPreview" class="photos"></div><p class="muted">Фото прикрепляются к текущей карточке (в этом прототипе хранятся локально в браузере).</p></section>
 <section class="card"><h2>6. Простой конструктор</h2><div class="grid"><div><label>Ширина (мм)</label><input id="cw" type="number" value="800"></div><div><label>Высота (мм)</label><input id="ch" type="number" value="900"></div><div><label>Глубина (мм)</label><input id="cd" type="number" value="500"></div></div><div id="box3d"><div id="cabinet"></div></div><p class="muted">Эскиз условный: пропорции отображаются приблизительно. Это не инженерный чертёж.</p></section>
 <section class="card"><h2>Итог расчёта</h2><div id="breakdown"></div><div class="total" id="total">0 ₽</div><button id="save">Сохранить заказ</button><button class="secondary" id="clear">Очистить расчёт</button></section><section class="card"><h2>Сохранённые заказы</h2><div id="orders"></div></section>
-</main><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script>
+</main><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="voice-plugin.js"></script><script>
 const SUPABASE_URL="https://jalyhfcacucjctfvsqao.supabase.co";
 const SUPABASE_KEY="sb_publishable_pOSiH43xkUK8EywFRkAhSA_mhqF2_2p";
 const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
@@ -79,7 +79,118 @@ signOut.onclick=async()=>{await sb.auth.signOut();await authRefresh();};
 syncCloud.onclick=async()=>{try{await loadCloudOrders();alert('Облачные заказы загружены.');}catch(e){alert('Не удалось загрузить: '+(e.message||e));}};
 sb.auth.onAuthStateChange(()=>authRefresh());authRefresh();
 // Voice order intake: best-effort browser speech recognition, user reviews before saving.
-const voiceBtn=document.getElementById('voiceOrder'),voiceStatus=document.getElementById('voiceStatus');voiceBtn.onclick=()=>{const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){voiceStatus.textContent='В этом браузере распознавание речи недоступно. Попробуй Chrome или голосовую клавиатуру.';return;}const rec=new SR();rec.lang='ru-RU';rec.interimResults=false;rec.maxAlternatives=1;voiceStatus.textContent='Слушаю… говори заказ.';rec.onresult=e=>{const transcript=e.results[0][0].transcript;voiceStatus.textContent='Распознано: '+transcript;parseVoiceOrder(transcript);};rec.onerror=e=>voiceStatus.textContent='Ошибка распознавания: '+(e.error||'не удалось распознать');rec.onend=()=>{};try{rec.start();}catch(e){voiceStatus.textContent='Не удалось запустить микрофон. Проверь разрешение браузера.';}};
-function parseVoiceOrder(t){const s=t.toLowerCase();const set=(id,v)=>{if(v!==undefined&&v!==null&&String(v).trim())document.getElementById(id).value=v;};const moneyWords={'ноль':0,'один':1,'одна':1,'две':2,'два':2,'три':3,'четыре':4,'пять':5,'десять':10,'двадцать':20,'тридцать':30,'сорок':40,'пятьдесят':50,'сто':100,'тысяча':1000,'тысяч':1000,'тысячи':1000,'миллион':1000000};function parseAmount(raw){let normalized=raw.replace(/[^0-9,\.\s]/g,'').replace(',','.').trim();if(normalized&&/[0-9]/.test(normalized))return Number(normalized.replace(/\s/g,''));const units={'ноль':0,'один':1,'одна':1,'одну':1,'два':2,'две':2,'три':3,'четыре':4,'пять':5,'шесть':6,'семь':7,'восемь':8,'девять':9,'десять':10,'одиннадцать':11,'двенадцать':12,'тринадцать':13,'четырнадцать':14,'пятнадцать':15,'шестнадцать':16,'семнадцать':17,'восемнадцать':18,'девятнадцать':19,'двадцать':20,'тридцать':30,'сорок':40,'пятьдесят':50,'шестьдесят':60,'семьдесят':70,'восемьдесят':80,'девяносто':90,'сто':100,'двести':200,'триста':300,'четыреста':400,'пятьсот':500,'шестьсот':600,'семьсот':700,'восемьсот':800,'девятьсот':900};let total=0,group=0;raw.toLowerCase().split(/\s+/).forEach(w=>{if(w in units)group+=units[w];else if(['тысяча','тысячи','тысяч'].includes(w)){total+=group*1000;group=0;}else if(['миллион','миллиона','миллионов'].includes(w)){total+=group*1000000;group=0;}});return total+group;}let amountMatch=s.match(/(?:стоимость|на сумму|всего|общая стоимость)\s*([\w\s,\.]+?)(?=предоплата|аванс|адрес|$)/);let preMatch=s.match(/(?:предоплата|аванс)\s*([\w\s,\.]+)/);if(amountMatch){let a=parseAmount(amountMatch[1]);if(a)set('orderTotal',a);}if(preMatch){let a=parseAmount(preMatch[1]);if(a)set('prepayment',a);}let titleMatch=s.match(/(?:заказ|делаем|изготовить)\s+(.+?)(?=\s+(?:клиент|для|стоимость|на сумму|предоплата|аванс|адрес)|$)/);if(titleMatch)set('title',titleMatch[1].trim());let clientMatch=s.match(/(?:клиент|для)\s+(.+?)(?=\s+(?:стоимость|на сумму|предоплата|аванс|адрес)|$)/);if(clientMatch)set('client',clientMatch[1].trim());let addrMatch=s.match(/адрес\s+(.+?)(?=\s+(?:стоимость|на сумму|предоплата|аванс)|$)/);if(addrMatch)set('address',addrMatch[1].trim());if(!orderNo.value)set('orderNo',nextOrderNo());}
+const voiceBtn=document.getElementById('voiceOrder'),voiceStatus=document.getElementById('voiceStatus');
+const nativeSpeech=window.FurnitureSpeechRecognition;
+let nativeSpeechActive=false,nativeStartPending=false,nativeSession=null,browserRecognition=null;
+function voiceErrorMessage(error){
+ const message=String(error?.message||error||'');
+ if(/denied|permission|not-allowed/i.test(message))return 'Доступ к микрофону запрещён. Разрешите его в настройках Android и попробуйте снова.';
+ if(/not available|unavailable|recognition service|service not/i.test(message))return 'На устройстве не найден сервис распознавания речи. Установите или включите сервис голосового ввода Google и русский язык.';
+ if(/network/i.test(message))return 'Сервис распознавания сообщил об ошибке сети. Проверьте подключение и повторите попытку.';
+ if(/no match|no speech|timeout/i.test(message))return 'Речь не распознана. Попробуйте говорить громче и ближе к микрофону.';
+ if(/client side error|audio recording error|recognitionservice busy|server error|didn't understand/i.test(message))return 'Android завершил распознавание с ошибкой. Проверьте микрофон и повторите попытку.';
+ return 'Не удалось распознать речь. Проверьте разрешение микрофона и доступность голосового сервиса.';
+}
+function setVoiceListening(listening){
+ nativeSpeechActive=listening;
+ voiceBtn.textContent=listening?'⏹ Остановить диктовку':'🎙️ Надиктовать заказ';
+ voiceBtn.setAttribute('aria-pressed',String(listening));
+}
+function finishNativeSession(session,{matches,error,errorMessage}={}){
+ if(session.finished)return;
+ session.finished=true;
+ const transcript=matches?.[0]?.trim()||'';
+ if(nativeSession===session){nativeSession=null;setVoiceListening(false);voiceBtn.disabled=false;}
+ if(transcript){
+  voiceStatus.textContent='Распознано: '+transcript;
+  try{parseVoiceOrder(transcript);}catch(e){console.error('Could not fill order from speech',e);voiceStatus.textContent='Речь распознана, но поля заказа заполнить не удалось.';}
+ }else if(errorMessage)voiceStatus.textContent=errorMessage;
+ else if(error)voiceStatus.textContent=voiceErrorMessage(error);
+ else voiceStatus.textContent='Речь не распознана. Нажмите кнопку и попробуйте ещё раз.';
+ session.resolveFinished({transcript,error:error||null});
+}
+function waitForNativeSession(session,timeoutMs){
+ let timer;
+ return Promise.race([session.finishedPromise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('recognition-finish-timeout')),timeoutMs);})]).finally(()=>clearTimeout(timer));
+}
+async function stopNativeVoiceInput(){
+ const session=nativeSession;
+ if(!session||session.finished||session.stopRequested)return;
+ session.stopRequested=true;
+ voiceBtn.disabled=true;
+ voiceStatus.textContent='Останавливаю распознавание…';
+ try{
+  // Plugin 6.0.1's Android stop call never resolves upstream; the bundled patch
+  // resolves it after stopListening has been dispatched. Keep a timeout as a guard.
+  await waitForPromise(nativeSpeech.stop(),2500,'stop-timeout');
+ }catch(error){console.warn('Speech stop request did not settle promptly',error);}
+ try{await waitForNativeSession(session,6000);}
+ catch(error){
+  if(!session.finished)finishNativeSession(session,{errorMessage:'После остановки не получен итог распознавания. Нажмите кнопку и попробуйте ещё раз.'});
+ }
+}
+function waitForPromise(promise,timeoutMs,timeoutMessage){
+ let timer;
+ return Promise.race([Promise.resolve(promise),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(timeoutMessage)),timeoutMs);})]).finally(()=>clearTimeout(timer));
+}
+async function stopVoiceInput(){
+ if(nativeSession){await stopNativeVoiceInput();return;}
+ if(browserRecognition){try{browserRecognition.stop();}catch(e){console.warn('Browser recognition stop failed',e);}browserRecognition=null;setVoiceListening(false);}
+}
+async function startNativeVoiceInput(){
+ if(nativeStartPending)return;
+ nativeStartPending=true;
+ voiceBtn.disabled=true;
+ voiceStatus.textContent='Проверяю доступ к распознаванию и микрофону…';
+ let session=null;
+ try{
+  if(!nativeSpeech){voiceStatus.textContent='Модуль распознавания не загружен. Пересоберите приложение и установите APK заново.';return;}
+  const availability=await nativeSpeech.available();
+  if(!availability.available){voiceStatus.textContent='На устройстве не найден сервис распознавания речи. Включите голосовой сервис Android и русский язык.';return;}
+  let permission=await nativeSpeech.checkPermissions();
+  if(permission.speechRecognition!=='granted')permission=await nativeSpeech.requestPermissions();
+  if(permission.speechRecognition!=='granted'){
+   voiceStatus.textContent='Доступ к микрофону не предоставлен. Разрешите его в настройках приложения Android и нажмите кнопку снова.';
+   return;
+  }
+  let resolveFinished;
+  const finishedPromise=new Promise(resolve=>{resolveFinished=resolve;});
+  session={finished:false,stopRequested:false,finishedPromise,resolveFinished};
+  nativeSession=session;
+  setVoiceListening(true);
+  voiceBtn.disabled=false;
+  voiceStatus.textContent='Слушаю… говорите заказ. Нажмите «Остановить диктовку», когда закончите.';
+  // In plugin 6.0.1, partialResults:true resolves start() immediately and
+  // leaves later Android errors without a JS error channel. With false, start()
+  // resolves with final matches or rejects on Android recognition errors.
+  Promise.resolve(nativeSpeech.start({language:'ru-RU',maxResults:1,partialResults:false,popup:false})).then(
+   result=>finishNativeSession(session,{matches:result?.matches}),
+   error=>finishNativeSession(session,{error})
+  );
+ }catch(error){
+  if(session)finishNativeSession(session,{error});
+  else{setVoiceListening(false);voiceBtn.disabled=false;voiceStatus.textContent=voiceErrorMessage(error);}
+ }finally{
+  nativeStartPending=false;
+  if(!nativeSpeechActive)voiceBtn.disabled=false;
+ }
+}
+function startBrowserVoiceInput(){
+ const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+ if(!SR){voiceStatus.textContent='Распознавание речи недоступно в этом браузере. Используйте Chrome или голосовую клавиатуру.';return;}
+ const rec=new SR();browserRecognition=rec;rec.lang='ru-RU';rec.interimResults=false;rec.maxAlternatives=1;
+ setVoiceListening(true);voiceStatus.textContent='Слушаю… говорите заказ.';
+ rec.onresult=e=>{const transcript=e.results[0][0].transcript;voiceStatus.textContent='Распознано: '+transcript;parseVoiceOrder(transcript);};
+ rec.onerror=e=>{voiceStatus.textContent=voiceErrorMessage(e.error);};
+ rec.onend=()=>{if(browserRecognition===rec)browserRecognition=null;setVoiceListening(false);};
+ try{rec.start();}catch(error){browserRecognition=null;setVoiceListening(false);voiceStatus.textContent=voiceErrorMessage(error);}
+}
+voiceBtn.onclick=async()=>{
+ if(nativeSession||browserRecognition){await stopVoiceInput();return;}
+ if(nativeStartPending)return;
+ if(window.Capacitor?.isNativePlatform?.()){await startNativeVoiceInput();return;}
+ startBrowserVoiceInput();
+};
+function parseVoiceOrder(t){const s=t.toLowerCase();const set=(id,v)=>{if(v!==undefined&&v!==null&&String(v).trim())document.getElementById(id).value=v;};const endFields='(?:клиент|для|стоимость|на сумму|предоплата|аванс|адрес|телефон|комментарий|примечание|статус)';function parseAmount(raw){let normalized=raw.replace(/[^0-9,\.\s]/g,'').replace(',','.').trim();if(normalized&&/[0-9]/.test(normalized))return Number(normalized.replace(/\s/g,''));const units={'ноль':0,'один':1,'одна':1,'одну':1,'два':2,'две':2,'три':3,'четыре':4,'пять':5,'шесть':6,'семь':7,'восемь':8,'девять':9,'десять':10,'одиннадцать':11,'двенадцать':12,'тринадцать':13,'четырнадцать':14,'пятнадцать':15,'шестнадцать':16,'семнадцать':17,'восемнадцать':18,'девятнадцать':19,'двадцать':20,'тридцать':30,'сорок':40,'пятьдесят':50,'шестьдесят':60,'семьдесят':70,'восемьдесят':80,'девяносто':90,'сто':100,'двести':200,'триста':300,'четыреста':400,'пятьсот':500,'шестьсот':600,'семьсот':700,'восемьсот':800,'девятьсот':900};let total=0,group=0;raw.toLowerCase().split(/\s+/).forEach(w=>{if(w in units)group+=units[w];else if(['тысяча','тысячи','тысяч'].includes(w)){total+=group*1000;group=0;}else if(['миллион','миллиона','миллионов'].includes(w)){total+=group*1000000;group=0;}});return total+group;}let amountMatch=s.match(new RegExp('(?:стоимость|на сумму|всего|общая стоимость)\\s*([\\w\\s,\\.]+?)(?='+endFields+'|$)'));let preMatch=s.match(new RegExp('(?:предоплата|аванс)\\s*([\\w\\s,\\.]+?)(?='+endFields+'|$)'));if(amountMatch){let a=parseAmount(amountMatch[1]);if(a)set('orderTotal',a);}if(preMatch){let a=parseAmount(preMatch[1]);if(a)set('prepayment',a);}let titleMatch=s.match(new RegExp('(?:заказ|делаем|изготовить)\\s+(.+?)(?=\\s+'+endFields+'|$)'));if(titleMatch)set('title',titleMatch[1].trim());let clientMatch=s.match(new RegExp('(?:клиент|для)\\s+(.+?)(?=\\s+'+endFields+'|$)'));if(clientMatch)set('client',clientMatch[1].trim());let addrMatch=s.match(new RegExp('адрес\\s+(.+?)(?=\\s+'+endFields+'|$)'));if(addrMatch)set('address',addrMatch[1].trim());let phoneMatch=s.match(/(?:телефон|номер телефона)\s*([+()\d][+()\d\s-]{5,})/);if(phoneMatch)set('phone',phoneMatch[1].trim());let noteMatch=s.match(new RegExp('(?:комментарий|примечание)\\s+(.+?)(?=\\s+(?:телефон|адрес|статус)|$)'));if(noteMatch)set('note',noteMatch[1].trim());let statusMatch=s.match(/статус\s+(новый|в работе|заказ материалов|готов|установлен|закрыт)/);if(statusMatch){const status=[...orderStatus.options].find(o=>o.textContent.toLowerCase()===statusMatch[1]);if(status)orderStatus.value=status.value;}if(!orderNo.value)set('orderNo',nextOrderNo());}
 calc();renderOrders();
 </script><script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("/sw.js", {scope:"/"}).catch(e=>console.log("SW",e)));}</script></body></html>
