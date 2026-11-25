@@ -14,6 +14,7 @@
     let pending = Object.create(null);
     let transcriptParts = [];
     let currentPartial = '';
+    let voiceNotes = [];
     let starting = false;
     let review;
     let transcriptView;
@@ -77,13 +78,14 @@
       transcriptParts.push(segment);
       const parsed = voice.parse(segment, catalog());
       pending = voice.mergeSuggestions(pending, parsed);
+      voiceNotes = voiceNotes.concat(parsed.notes || []).filter(function (note, index, all) { return all.indexOf(note) === index; });
       renderReview();
       status.textContent = 'Распознано. Можно продолжить диктовку или остановить её, затем проверьте предложения ниже.';
     }
     function renderReview() {
       const text = transcriptParts.concat(currentPartial ? [currentPartial] : []).join(' ').trim();
       const entries = Object.keys(pending);
-      review.hidden = !text && !entries.length;
+      review.hidden = !text && !entries.length && !voiceNotes.length;
       transcriptView.value = text;
       suggestionsView.replaceChildren();
       entries.forEach(function (id) {
@@ -108,7 +110,8 @@
         }
         suggestionsView.append(row);
       });
-      review.querySelector('#voiceReviewHint').textContent = entries.length ? 'Предложения не сохраняются автоматически. Проверьте распознанный текст и значения; их можно отредактировать.' : 'Речь распознана, но поля не удалось однозначно определить. Исправьте поля вручную или продолжите команду.';
+      const hint = entries.length ? 'Предложения не сохраняются автоматически. Проверьте распознанный текст и значения; их можно отредактировать.' : 'Речь распознана, но поля не удалось однозначно определить. Исправьте поля вручную или продолжите команду.';
+      review.querySelector('#voiceReviewHint').textContent = voiceNotes.length ? hint + ' ' + voiceNotes.join(' ') : hint;
     }
     function typedSuggestions() {
       const result = Object.create(null);
@@ -144,6 +147,7 @@
       pending = Object.create(null);
       transcriptParts = [];
       currentPartial = '';
+      voiceNotes = [];
       review.hidden = true;
       status.textContent = 'Голосовые предложения закрыты без заполнения. Можно исправить карточку вручную.';
     });
@@ -226,6 +230,7 @@
         pending = Object.create(null);
         transcriptParts = [];
         currentPartial = '';
+        voiceNotes = [];
         review.hidden = true;
         setTimeout(clearProtection, 0);
       }
@@ -233,6 +238,7 @@
         setTimeout(function () {
           transcriptParts = [];
           currentPartial = '';
+          voiceNotes = [];
           pending = Object.create(null);
           review.hidden = true;
         }, 0);
@@ -244,6 +250,7 @@
         pending = Object.create(null);
         transcriptParts = [];
         currentPartial = '';
+        voiceNotes = [];
         review.hidden = true;
         protectedFields.clear();
         const result = loadOrder.apply(this, arguments);

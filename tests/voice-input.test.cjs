@@ -43,6 +43,20 @@ test('client details, edge meters and additional voice commands are parsed', () 
   assert.equal(merged.ld.value, 8);
 });
 
+test('full kitchen order command maps supported values and flags ambiguous 2 mm edge size', () => {
+  const parsed = voice.parse('Заказ на кухню. ЛДСП пять листов. МДФ два листа. Кромка два миллиметра сто метров. Петли десять штук. Ручки шесть штук. Стоимость заказа сто десять тысяч рублей. Предоплата пятьдесят пять тысяч рублей.');
+  assert.equal(parsed.values.title.value, 'на кухню');
+  assert.equal(parsed.values.ld.value, 5);
+  assert.equal(parsed.values.md.value, 2);
+  assert.equal(parsed.values.hw0.value, 10);
+  assert.equal(parsed.values.hw4.value, 6);
+  assert.equal(parsed.values.orderTotal.value, 110000);
+  assert.equal(parsed.values.prepayment.value, 55000);
+  assert.equal(parsed.values.e219, undefined, 'the parser does not guess between existing 2×19 and 2×35 fields');
+  assert.equal(parsed.values.e235, undefined);
+  assert.match(parsed.notes[0], /метраж 100 м не назначен неоднозначному полю/);
+});
+
 test('native recognition continues after results and stop keeps the final phrase', async () => {
   let starts = 0;
   let finishThird;

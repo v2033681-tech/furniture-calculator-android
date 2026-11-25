@@ -134,35 +134,39 @@
       else if (event.key === 'ArrowRight' && scale <= 1.01) move(1);
     });
 
-    stage.addEventListener('pointerdown', function (event) {
-      if (overlay.hidden || event.button != null && event.button !== 0) return;
-      try { stage.setPointerCapture(event.pointerId); } catch (_) { /* capture is optional when a WebView cancels a touch */ }
-      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-      if (pointers.size === 1) gestureStart = { x: event.clientX, y: event.clientY, offsetX: offsetX, offsetY: offsetY };
+    function startGesturePoint(id, x, y) {
+      pointers.set(id, { x: x, y: y });
+      if (pointers.size === 1) gestureStart = { x: x, y: y, offsetX: offsetX, offsetY: offsetY };
       if (pointers.size === 2) {
         const pts = Array.from(pointers.values());
         pinchStart = { distance: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y), scale: scale };
         gestureStart = null;
       }
-    });
-    stage.addEventListener('pointermove', function (event) {
-      if (!pointers.has(event.pointerId)) return;
-      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    }
+    function moveGesturePoint(id, x, y) {
+      if (!pointers.has(id)) return;
+      pointers.set(id, { x: x, y: y });
       if (pointers.size >= 2 && pinchStart) {
         const pts = Array.from(pointers.values());
         const distance = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
         scale = pinchStart.scale * distance / Math.max(1, pinchStart.distance);
         updateTransform();
       } else if (gestureStart && scale > 1.01) {
-        offsetX = gestureStart.offsetX + event.clientX - gestureStart.x;
-        offsetY = gestureStart.offsetY + event.clientY - gestureStart.y;
+        offsetX = gestureStart.offsetX + x - gestureStart.x;
+        offsetY = gestureStart.offsetY + y - gestureStart.y;
         updateTransform();
       }
-    });
-    function endPointer(event) {
+    }
+    function endGesturePoint(id, x, y, cancelled) {
       const start = gestureStart;
-      const dx = start ? event.clientX - start.x : 0;
-      pointers.delete(event.pointerId);
+      const dx = start ? x - start.x : 0;
+      pointers.delete(id);
+      if (cancelled) {
+        pointers.clear();
+        pinchStart = null;
+        gestureStart = null;
+        return;
+      }
       if (pointers.size < 2) pinchStart = null;
       if (pointers.size === 1 && scale > 1.01) {
         const remaining = pointers.values().next().value;
@@ -171,8 +175,34 @@
       if (!pointers.size && scale <= 1.01 && Math.abs(dx) > 65) move(dx < 0 ? 1 : -1);
       if (!pointers.size) gestureStart = null;
     }
-    stage.addEventListener('pointerup', endPointer);
-    stage.addEventListener('pointercancel', endPointer);
+    const touchInput = !!(root.navigator && root.navigator.maxTouchPoints > 0) || 'ontouchstart' in root;
+    if (touchInput) {
+      stage.addEventListener('touchstart', function (event) {
+        if (overlay.hidden) return;
+        event.preventDefault();
+        Array.from(event.changedTouches || []).forEach(function (touch) { startGesturePoint(touch.identifier, touch.clientX, touch.clientY); });
+      }, { passive: false });
+      stage.addEventListener('touchmove', function (event) {
+        if (overlay.hidden) return;
+        event.preventDefault();
+        Array.from(event.changedTouches || []).forEach(function (touch) { moveGesturePoint(touch.identifier, touch.clientX, touch.clientY); });
+      }, { passive: false });
+      stage.addEventListener('touchend', function (event) {
+        Array.from(event.changedTouches || []).forEach(function (touch) { endGesturePoint(touch.identifier, touch.clientX, touch.clientY, false); });
+      }, { passive: false });
+      stage.addEventListener('touchcancel', function (event) {
+        Array.from(event.changedTouches || []).forEach(function (touch) { endGesturePoint(touch.identifier, touch.clientX, touch.clientY, true); });
+      }, { passive: false });
+    } else {
+      stage.addEventListener('pointerdown', function (event) {
+        if (overlay.hidden || event.button != null && event.button !== 0) return;
+        try { stage.setPointerCapture(event.pointerId); } catch (_) { /* capture is optional */ }
+        startGesturePoint(event.pointerId, event.clientX, event.clientY);
+      });
+      stage.addEventListener('pointermove', function (event) { moveGesturePoint(event.pointerId, event.clientX, event.clientY); });
+      stage.addEventListener('pointerup', function (event) { endGesturePoint(event.pointerId, event.clientX, event.clientY, false); });
+      stage.addEventListener('pointercancel', function (event) { endGesturePoint(event.pointerId, event.clientX, event.clientY, true); });
+    }
     stage.addEventListener('wheel', function (event) {
       if (!overlay.hidden) { event.preventDefault(); scale += event.deltaY < 0 ? 0.2 : -0.2; updateTransform(); }
     }, { passive: false });

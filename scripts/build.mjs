@@ -7,6 +7,7 @@ const webFiles = [
   'voice-input.js',
   'voice-input-ui.js',
   'photo-gallery.js',
+  'auth-storage.js',
   'manifest.json',
   'sw.js',
   'icon.svg',
@@ -43,4 +44,13 @@ await build({
   format: 'iife',
   target: ['es2020'],
   outfile: 'www/voice-plugin.js',
+});
+
+await build({
+  entryPoints: ['supabase-bridge.js'],
+  bundle: true,
+  platform: 'browser',
+  format: 'iife',
+  target: ['es2020'],
+  outfile: 'www/supabase-client.js',
 });

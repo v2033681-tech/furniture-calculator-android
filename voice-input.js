@@ -209,6 +209,12 @@
         setValue(values, type.id, quantity, type.label, '', mode);
       }
     });
+    const genericTwoMillimeterEdge = /(?<![\p{L}\p{N}_])кромк\p{L}*\s+(?:пвх\s+)?(?:2|два|две)\s*(?:мм|миллиметр\p{L}*)(?![\p{L}\p{N}_])/giu;
+    let genericEdgeMatch;
+    while ((genericEdgeMatch = genericTwoMillimeterEdge.exec(text))) {
+      const quantity = quantityNear(text, genericEdgeMatch.index, genericEdgeMatch.index + genericEdgeMatch[0].length);
+      if (quantity !== null) notes.push('Кромка 2 мм: выберите существующий размер 2×19 или 2×35 мм вручную; метраж ' + quantity + ' м не назначен неоднозначному полю.');
+    }
 
     const hardwarePatterns = [
       { id: 'hw1', source: '(?<![\\p{L}\\p{N}_])петл(?:я|и|ю|ей|ями)\\s*(?:180|сто\\s+восемьдесят)(?:\\s*(?:°|градус\\p{L}*))?', label: catalog[1] || 'Петля 180°', specificHinge: true },

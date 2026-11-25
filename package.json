@@ -4,14 +4,16 @@
   "private": true,
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test:voice": "node --test tests/voice-input.test.cjs tests/app-wiring.test.cjs tests/photo-gallery.test.cjs",
+    "test:voice": "node --test tests/voice-input.test.cjs tests/app-wiring.test.cjs tests/photo-gallery.test.cjs tests/auth-storage.test.cjs",
     "android": "npx cap sync android",
     "postinstall": "patch-package"
   },
   "dependencies": {
+    "@aparajita/capacitor-secure-storage": "6.0.1",
     "@capacitor/core": "^6.2.0",
     "@capacitor/android": "^6.2.0",
-    "@capacitor-community/speech-recognition": "6.0.1"
+    "@capacitor-community/speech-recognition": "6.0.1",
+    "@supabase/supabase-js": "2.119.1"
   },
   "devDependencies": {
     "@capacitor/cli": "^6.2.0",
