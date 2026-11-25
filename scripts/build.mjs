@@ -3,6 +3,9 @@ import { build } from 'esbuild';
 
 const webFiles = [
   'index.html',
+  'voice-input.js',
+  'voice-input-ui.js',
+  'photo-gallery.js',
   'manifest.json',
   'sw.js',
   'icon.svg',

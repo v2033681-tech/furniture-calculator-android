@@ -1,5 +1,5 @@
-const CACHE_NAME='furniture-calc-pwa-v4';
-const CORE=['/','/index.html','/manifest.json','/icon-192.png','/icon-512.png'];
+const CACHE_NAME='furniture-calc-pwa-v5';
+const CORE=['/','/index.html','/voice-plugin.js','/voice-input.js','/voice-input-ui.js','/photo-gallery.js','/manifest.json','/icon-192.png','/icon-512.png'];
 self.addEventListener('install',event=>{event.waitUntil((async()=>{const c=await caches.open(CACHE_NAME);await c.addAll(CORE);await self.skipWaiting();})());});
 self.addEventListener('activate',event=>{event.waitUntil((async()=>{for(const key of await caches.keys()){if(key.startsWith('furniture-calc-')&&key!==CACHE_NAME)await caches.delete(key);}await self.clients.claim();})());});
 self.addEventListener('fetch',event=>{
