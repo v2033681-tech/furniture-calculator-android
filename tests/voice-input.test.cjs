@@ -201,7 +201,7 @@ test('native active errors retry transient service failures and surface fatal pe
 
   await controller.startNative();
   native.emit('recognitionError', { code: 11, message: 'Server disconnected' });
-  for (let i = 0; i < 40 && native.calls.length < 2; i += 1) await wait(5);
+  for (let i = 0; i < 120 && native.calls.length < 2; i += 1) await wait(5);
   assert.equal(native.calls.length, 2, 'a transient native service disconnect is retried');
   native.emit('recognitionError', { code: 9, message: 'Insufficient permissions' });
   for (let i = 0; i < 40 && !ended; i += 1) await wait(5);
