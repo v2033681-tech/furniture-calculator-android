@@ -1,32 +1,51 @@
 diff --git a/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java b/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java
+index 0f3fcab..33c6006 100644
 --- a/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java
 +++ b/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java
-@@ -31,2 +31,3 @@
+@@ -32,6 +32,7 @@ public class SpeechRecognition extends Plugin implements Constants {
+ 
      public static final String TAG = "SpeechRecognition";
      private static final String LISTENING_EVENT = "listeningState";
 +    private static final String RECOGNITION_ERROR_EVENT = "recognitionError";
-@@ -81,5 +82,5 @@
+     static final String SPEECH_RECOGNITION = "speechRecognition";
+ 
+     private Receiver languageReceiver;
+@@ -89,7 +90,7 @@ public class SpeechRecognition extends Plugin implements Constants {
      @PluginMethod
      public void stop(final PluginCall call) {
          try {
 -            stopListening();
 +            stopListening(call);
          } catch (Exception ex) {
-@@ -169,2 +170,3 @@
+             call.reject(ex.getLocalizedMessage());
+         }
+@@ -184,7 +185,7 @@ public class SpeechRecognition extends Plugin implements Constants {
+                     () -> {
+                         try {
                              SpeechRecognition.this.lock.lock();
+-
 +                            SpeechRecognition.this.previousPartialResults = new JSONArray();
                              if (speechRecognizer != null) {
-@@ -175,4 +177,5 @@
+                                 speechRecognizer.cancel();
+                                 speechRecognizer.destroy();
+@@ -194,6 +195,7 @@ public class SpeechRecognition extends Plugin implements Constants {
                              speechRecognizer = SpeechRecognizer.createSpeechRecognizer(bridge.getActivity());
                              SpeechRecognitionListener listener = new SpeechRecognitionListener();
                              listener.setCall(call);
 +                            listener.setRecognizer(speechRecognizer);
                              listener.setPartialResults(partialResults);
-@@ -194,1 +197,1 @@
+                             speechRecognizer.setRecognitionListener(listener);
+                             speechRecognizer.startListening(intent);
+@@ -211,7 +213,7 @@ public class SpeechRecognition extends Plugin implements Constants {
+         }
+     }
+ 
 -    private void stopListening() {
 +    private void stopListening(final PluginCall call) {
-@@ -201,7 +204,12 @@
-                         if (SpeechRecognition.this.listening) {
+         bridge
+             .getWebView()
+             .post(
+@@ -222,8 +224,13 @@ public class SpeechRecognition extends Plugin implements Constants {
                              speechRecognizer.stopListening();
                              SpeechRecognition.this.listening(false);
                          }
@@ -39,18 +58,28 @@ diff --git a/node_modules/@capacitor-community/speech-recognition/android/src/ma
 +                            call.reject(ex.getLocalizedMessage());
 +                        }
                      } finally {
-@@ -215,1 +223,2 @@
+                         SpeechRecognition.this.lock.unlock();
+                     }
+@@ -234,12 +241,17 @@ public class SpeechRecognition extends Plugin implements Constants {
+     private class SpeechRecognitionListener implements RecognitionListener {
+ 
          private PluginCall call;
 +        private SpeechRecognizer recognizer;
-@@ -218,3 +227,7 @@
+         private boolean partialResults;
+ 
          public void setCall(PluginCall call) {
              this.call = call;
          }
-+
+ 
 +        public void setRecognizer(SpeechRecognizer recognizer) {
 +            this.recognizer = recognizer;
 +        }
-@@ -265,4 +278,19 @@
++
+         public void setPartialResults(boolean partialResults) {
+             this.partialResults = partialResults;
+         }
+@@ -288,11 +300,26 @@ public class SpeechRecognition extends Plugin implements Constants {
+ 
          @Override
          public void onError(int error) {
 -            SpeechRecognition.this.stopListening();
@@ -71,18 +100,26 @@ diff --git a/node_modules/@capacitor-community/speech-recognition/android/src/ma
 +            JSObject stoppedEvent = new JSObject();
 +            stoppedEvent.put("status", "stopped");
 +            SpeechRecognition.this.notifyListeners(LISTENING_EVENT, stoppedEvent);
-@@ -269,3 +297,3 @@
+ 
              if (this.call != null) {
 -                call.reject(errorMssg);
 +                if (!this.partialResults) call.reject(errorMssg);
              }
-@@ -283,3 +311,4 @@
+         }
+ 
+@@ -309,6 +336,7 @@ public class SpeechRecognition extends Plugin implements Constants {
+                     } else {
                          JSObject ret = new JSObject();
                          ret.put("matches", jsArray);
 +                        ret.put("isFinal", true);
                          notifyListeners("partialResults", ret);
-@@ -299,3 +328,4 @@
+                     }
+                 }
+@@ -327,6 +355,7 @@ public class SpeechRecognition extends Plugin implements Constants {
+                     previousPartialResults = matchesJSON;
                      JSObject ret = new JSObject();
                      ret.put("matches", previousPartialResults);
 +                    ret.put("isFinal", false);
                      notifyListeners("partialResults", ret);
+                 }
+             } catch (Exception ex) {}
