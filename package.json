@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test:voice": "node --test tests/voice-input.test.cjs",
+    "test:voice": "node --test tests/voice-input.test.cjs tests/app-wiring.test.cjs tests/photo-gallery.test.cjs",
     "android": "npx cap sync android",
     "postinstall": "patch-package"
   },

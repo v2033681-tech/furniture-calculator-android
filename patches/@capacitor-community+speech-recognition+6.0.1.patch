@@ -1,18 +1,31 @@
 diff --git a/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java b/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java
 --- a/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java
 +++ b/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java
-@@ -91,3 +91,3 @@
+@@ -31,2 +31,3 @@
+     public static final String TAG = "SpeechRecognition";
+     private static final String LISTENING_EVENT = "listeningState";
++    private static final String RECOGNITION_ERROR_EVENT = "recognitionError";
+@@ -81,5 +82,5 @@
+     @PluginMethod
+     public void stop(final PluginCall call) {
          try {
 -            stopListening();
 +            stopListening(call);
          } catch (Exception ex) {
-@@ -214,4 +214,4 @@
+@@ -169,2 +170,3 @@
+                             SpeechRecognition.this.lock.lock();
++                            SpeechRecognition.this.previousPartialResults = new JSONArray();
+                             if (speechRecognizer != null) {
+@@ -175,4 +177,5 @@
+                             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(bridge.getActivity());
+                             SpeechRecognitionListener listener = new SpeechRecognitionListener();
+                             listener.setCall(call);
++                            listener.setRecognizer(speechRecognizer);
+                             listener.setPartialResults(partialResults);
+@@ -194,1 +197,1 @@
 -    private void stopListening() {
 +    private void stopListening(final PluginCall call) {
-         bridge
-             .getWebView()
-             .post(
-@@ -221,7 +221,12 @@
+@@ -201,7 +204,12 @@
                          if (SpeechRecognition.this.listening) {
                              speechRecognizer.stopListening();
                              SpeechRecognition.this.listening(false);
@@ -26,9 +39,50 @@ diff --git a/node_modules/@capacitor-community/speech-recognition/android/src/ma
 +                            call.reject(ex.getLocalizedMessage());
 +                        }
                      } finally {
-@@ -289,4 +294,4 @@
+@@ -215,1 +223,2 @@
+         private PluginCall call;
++        private SpeechRecognizer recognizer;
+@@ -218,3 +227,7 @@
+         public void setCall(PluginCall call) {
+             this.call = call;
+         }
++
++        public void setRecognizer(SpeechRecognizer recognizer) {
++            this.recognizer = recognizer;
++        }
+@@ -265,4 +278,19 @@
          @Override
          public void onError(int error) {
 -            SpeechRecognition.this.stopListening();
-+            SpeechRecognition.this.stopListening(null);
              String errorMssg = getErrorText(error);
++            try {
++                if (this.recognizer != null) {
++                    this.recognizer.destroy();
++                    if (SpeechRecognition.this.speechRecognizer == this.recognizer) {
++                        SpeechRecognition.this.speechRecognizer = null;
++                    }
++                }
++            } catch (Exception ignored) {}
++            SpeechRecognition.this.listening(false);
++            JSObject errorEvent = new JSObject();
++            errorEvent.put("code", error);
++            errorEvent.put("message", errorMssg);
++            SpeechRecognition.this.notifyListeners(RECOGNITION_ERROR_EVENT, errorEvent);
++            JSObject stoppedEvent = new JSObject();
++            stoppedEvent.put("status", "stopped");
++            SpeechRecognition.this.notifyListeners(LISTENING_EVENT, stoppedEvent);
+@@ -269,3 +297,3 @@
+             if (this.call != null) {
+-                call.reject(errorMssg);
++                if (!this.partialResults) call.reject(errorMssg);
+             }
+@@ -283,3 +311,4 @@
+                         JSObject ret = new JSObject();
+                         ret.put("matches", jsArray);
++                        ret.put("isFinal", true);
+                         notifyListeners("partialResults", ret);
+@@ -299,3 +328,4 @@
+                     JSObject ret = new JSObject();
+                     ret.put("matches", previousPartialResults);
++                    ret.put("isFinal", false);
+                     notifyListeners("partialResults", ret);

@@ -305,27 +305,60 @@
     const getBrowserRecognition = config.getBrowserRecognition || function () { return null; };
     const onState = config.onState || function () {};
     const onSegment = config.onSegment || function () {};
+    const onPartial = config.onPartial || function () {};
     const onEnd = config.onEnd || function () {};
     const restartDelayMs = Math.max(0, Number(config.restartDelayMs ?? 350));
     const stopCallTimeoutMs = Math.max(100, Number(config.stopCallTimeoutMs ?? 2500));
-    const stopResultTimeoutMs = Math.max(500, Number(config.stopResultTimeoutMs ?? 7000));
+    const stopResultTimeoutMs = Math.max(500, Number(config.stopResultTimeoutMs ?? 4000));
+    const nativeFinalResultTimeoutMs = Math.max(500, Number(config.nativeFinalResultTimeoutMs ?? 2500));
     let activeSession = null;
 
     function isActive(session) {
       return !!session && !session.finished && activeSession === session;
     }
 
-    function notifyState(session, waiting, stopping) {
-      onState({ active: isActive(session), mode: session.mode, waiting: !!waiting, stopping: !!stopping });
+    function notifyState(session, waiting, stopping, extra) {
+      onState(Object.assign({ active: isActive(session), mode: session.mode, waiting: !!waiting, stopping: !!stopping }, extra || {}));
+    }
+
+    function clearTimer(session, name) {
+      if (session[name]) clearTimeout(session[name]);
+      session[name] = null;
+    }
+
+    function detachNativeListeners(session) {
+      const handles = session.listenerHandles.splice(0);
+      handles.forEach(function (handle) {
+        if (handle && typeof handle.remove === 'function') {
+          try { Promise.resolve(handle.remove()).catch(function () {}); } catch (_) { /* listener may already be removed */ }
+        }
+      });
+    }
+
+    function samePhrase(left, right) {
+      return normalize(left || '').replace(/[^\p{L}\p{N}]+/gu, '') === normalize(right || '').replace(/[^\p{L}\p{N}]+/gu, '');
+    }
+
+    function addSegment(session, text) {
+      const value = String(text || '').trim();
+      if (!value || !isActive(session)) return;
+      if (session.segments.length && samePhrase(session.segments[session.segments.length - 1], value)) return;
+      session.segments.push(value);
+      onSegment(value, session.segments.slice());
+    }
+
+    function commitPartial(session) {
+      const partial = String(session.currentPartial || '').trim();
+      session.currentPartial = '';
+      if (partial) addSegment(session, partial);
     }
 
     function finish(session, error, timedOut) {
       if (session.finished) return;
+      if (session.nativeEvents) commitPartial(session);
       session.finished = true;
-      if (session.restartTimer) clearTimeout(session.restartTimer);
-      if (session.stopTimer) clearTimeout(session.stopTimer);
-      session.restartTimer = null;
-      session.stopTimer = null;
+      clearTimer(session, 'restartTimer');
+      clearTimer(session, 'nativeFinalTimer');
       const recognition = session.recognition;
       session.recognition = null;
       if (recognition) {
@@ -335,6 +368,11 @@
         if (timedOut) {
           try { recognition.abort(); } catch (_) { /* recognizer may already be stopped */ }
         }
+      }
+      detachNativeListeners(session);
+      if (session.nativeAttemptResolve) {
+        session.nativeAttemptResolve();
+        session.nativeAttemptResolve = null;
       }
       if (activeSession === session) activeSession = null;
       const outcome = { mode: session.mode, stopped: !!session.stopRequested, timedOut: !!timedOut, error: error || null, segments: session.segments.slice() };
@@ -348,36 +386,32 @@
       session.restartTimer = setTimeout(function () {
         session.restartTimer = null;
         if (!isActive(session) || session.stopRequested) return;
-        if (session.mode === 'native') runNativeAttempt(session);
+        if (session.nativeEvents) runNativeEventAttempt(session);
+        else if (session.mode === 'native') runLegacyNativeAttempt(session);
         else runBrowserAttempt(session);
       }, Math.max(0, delay ?? restartDelayMs));
     }
 
-    function addSegment(session, text) {
-      const value = String(text || '').trim();
-      if (!value || !isActive(session)) return;
-      session.segments.push(value);
-      onSegment(value, session.segments.slice());
-    }
-
     function retryDelayFor(error, session) {
       const text = normalize(error && (error.message || error) || '');
-      if (/no speech|speech timeout|no match|didn't understand|не распозн|тишин/.test(text)) {
+      const code = String(error && error.code != null ? error.code : '');
+      if (/^(?:6|7)$/.test(code) || /no speech|speech timeout|no match|didn't understand|не распозн|тишин/.test(text)) {
         session.transientFailures = 0;
-        return restartDelayMs;
+        session.emptyRetries += 1;
+        return Math.min(1500, restartDelayMs + Math.min(1200, session.emptyRetries * 100));
       }
-      if (/busy|занят/.test(text)) {
+      if (/^(?:5|8|11)$/.test(code) || /busy|занят|client side|server disconnected/.test(text)) {
         session.transientFailures += 1;
-        if (session.transientFailures <= 4) return Math.min(2000, restartDelayMs * Math.pow(2, session.transientFailures));
+        if (session.transientFailures <= 4) return Math.min(2500, Math.max(250, restartDelayMs) * Math.pow(2, session.transientFailures - 1));
       }
-      if (/network|сеть/.test(text)) {
+      if (/^(?:1|2|4|10)$/.test(code) || /network|сеть|server error/.test(text)) {
         session.transientFailures += 1;
-        if (session.transientFailures <= 2) return Math.min(3000, restartDelayMs * Math.pow(2, session.transientFailures + 1));
+        if (session.transientFailures <= 3) return Math.min(4000, Math.max(300, restartDelayMs) * Math.pow(2, session.transientFailures));
       }
       return null;
     }
 
-    async function runNativeAttempt(session) {
+    async function runLegacyNativeAttempt(session) {
       if (!isActive(session) || session.stopRequested || session.currentTask) return;
       notifyState(session, false, false);
       let task;
@@ -406,6 +440,126 @@
         }
       } finally {
         if (session.currentTask === task) session.currentTask = null;
+      }
+    }
+
+    function completeNativeAttempt(session, text) {
+      if (!isActive(session) || !session.nativeAttemptActive) return;
+      clearTimer(session, 'nativeFinalTimer');
+      const finalText = String(text || session.currentPartial || '').trim();
+      session.currentPartial = '';
+      session.nativeAttemptActive = false;
+      session.nativeSawEndOfSpeech = false;
+      if (finalText) addSegment(session, finalText);
+      if (session.nativeAttemptResolve) {
+        session.nativeAttemptResolve();
+        session.nativeAttemptResolve = null;
+      }
+      session.emptyRetries = 0;
+      session.transientFailures = 0;
+      if (session.stopRequested) finish(session, null, false);
+      else scheduleRestart(session, restartDelayMs);
+    }
+
+    function handleNativeError(session, error) {
+      if (!isActive(session) || !session.nativeAttemptActive) return;
+      clearTimer(session, 'nativeFinalTimer');
+      commitPartial(session);
+      session.nativeAttemptActive = false;
+      session.nativeSawEndOfSpeech = false;
+      if (session.nativeAttemptResolve) {
+        session.nativeAttemptResolve();
+        session.nativeAttemptResolve = null;
+      }
+      if (session.stopRequested) {
+        finish(session, null, false);
+        return;
+      }
+      const retryDelay = retryDelayFor(error, session);
+      if (retryDelay !== null) {
+        notifyState(session, true, false, { transientError: error && (error.message || error.code) || 'recognition-error' });
+        scheduleRestart(session, retryDelay);
+      } else finish(session, error || new Error('Speech recognition failed.'), false);
+    }
+
+    function onNativePartial(session, event) {
+      if (!isActive(session) || !session.nativeAttemptActive) return;
+      const matches = Array.isArray(event && event.matches) ? event.matches : [];
+      const phrase = String(matches[0] || '').trim();
+      const hasFinalFlag = !!event && typeof event.isFinal === 'boolean';
+      const isFinal = hasFinalFlag ? event.isFinal : session.nativeSawEndOfSpeech;
+      if (isFinal) {
+        completeNativeAttempt(session, phrase);
+        return;
+      }
+      if (phrase) {
+        session.currentPartial = phrase;
+        onPartial(phrase, session.segments.slice());
+      }
+    }
+
+    function onNativeListeningState(session, event) {
+      if (!isActive(session)) return;
+      const status = normalize(event && event.status || '');
+      if (status === 'started') {
+        session.nativeSawEndOfSpeech = false;
+        notifyState(session, false, session.stopRequested);
+      } else if (status === 'stopped' && session.nativeAttemptActive) {
+        // The plugin emits this from onEndOfSpeech just before its final result callback.
+        session.nativeSawEndOfSpeech = true;
+        notifyState(session, true, session.stopRequested, { finalizing: true });
+        clearTimer(session, 'nativeFinalTimer');
+        session.nativeFinalTimer = setTimeout(function () {
+          if (!isActive(session) || !session.nativeAttemptActive) return;
+          const error = { code: 6, message: 'No speech input' };
+          handleNativeError(session, error);
+        }, nativeFinalResultTimeoutMs);
+      }
+    }
+
+    async function runNativeEventAttempt(session) {
+      if (!isActive(session) || session.stopRequested || session.nativeAttemptActive) return;
+      if (session.currentTask) {
+        scheduleRestart(session, Math.max(100, restartDelayMs));
+        return;
+      }
+      session.nativeAttemptActive = true;
+      session.nativeSawEndOfSpeech = false;
+      session.currentPartial = '';
+      let resolveAttempt;
+      session.nativeAttemptDone = new Promise(function (resolve) { resolveAttempt = resolve; });
+      session.nativeAttemptResolve = resolveAttempt;
+      notifyState(session, false, false);
+      let task;
+      try {
+        task = Promise.resolve(nativeSpeech.start({ language: 'ru-RU', maxResults: 1, partialResults: true, popup: false }));
+      } catch (error) {
+        task = Promise.reject(error);
+      }
+      session.currentTask = task;
+      try {
+        const result = await task;
+        if (!isActive(session) || !session.nativeAttemptActive) return;
+        // Some plugin implementations return a final match even in partial mode.
+        const matches = Array.isArray(result && result.matches) ? result.matches : [];
+        if (matches.length) completeNativeAttempt(session, matches[0]);
+      } catch (error) {
+        handleNativeError(session, error);
+      } finally {
+        if (session.currentTask === task) session.currentTask = null;
+      }
+    }
+
+    async function attachNativeListeners(session) {
+      const registrations = [
+        ['partialResults', function (event) { onNativePartial(session, event); }],
+        ['listeningState', function (event) { onNativeListeningState(session, event); }],
+        ['recognitionError', function (event) { handleNativeError(session, event || new Error('Speech recognition failed.')); }]
+      ];
+      for (const registration of registrations) {
+        const handle = await nativeSpeech.addListener(registration[0], registration[1]);
+        if (handle) session.listenerHandles.push(handle);
+        if (!isActive(session)) return;
       }
     }
 
@@ -452,29 +606,42 @@
       catch (error) { finish(session, error, false); }
     }
 
-    function createSession(mode) {
+    function createSession(mode, initializing) {
       let resolve;
       const completion = new Promise(function (r) { resolve = r; });
       const session = {
-        mode: mode, finished: false, stopRequested: false, restartTimer: null, stopTimer: null,
-        currentTask: null, recognition: null, transientFailures: 0, segments: [],
+        mode: mode, nativeEvents: mode === 'native-events', finished: false, stopRequested: false, restartTimer: null, nativeFinalTimer: null,
+        currentTask: null, recognition: null, transientFailures: 0, emptyRetries: 0, segments: [], currentPartial: '',
+        listenerHandles: [], nativeAttemptActive: false, nativeAttemptResolve: null, nativeAttemptDone: null, nativeSawEndOfSpeech: false,
         completion: completion, resolve: resolve, stopPromise: null
       };
       activeSession = session;
-      onState({ active: true, mode: mode, waiting: false, stopping: false });
+      onState({ active: true, mode: mode, waiting: false, stopping: false, initializing: !!initializing });
       return session;
     }
 
-    function startNative() {
+    async function startNative() {
       if (activeSession || !nativeSpeech) return false;
-      const session = createSession('native');
-      runNativeAttempt(session);
-      return true;
+      const useEvents = typeof nativeSpeech.addListener === 'function';
+      const session = createSession(useEvents ? 'native-events' : 'native', useEvents);
+      if (!useEvents) {
+        runLegacyNativeAttempt(session);
+        return true;
+      }
+      try {
+        await attachNativeListeners(session);
+        if (!isActive(session)) return false;
+        await runNativeEventAttempt(session);
+        return true;
+      } catch (error) {
+        finish(session, error, false);
+        throw error;
+      }
     }
 
     function startBrowser() {
       if (activeSession) return false;
-      const session = createSession('browser');
+      const session = createSession('browser', false);
       runBrowserAttempt(session);
       return true;
     }
@@ -492,7 +659,7 @@
       if (!session) return Promise.resolve(null);
       if (session.stopPromise) return session.stopPromise;
       const wasBetweenBrowserAttempts = !!session.restartTimer && session.mode === 'browser';
-      const wasBetweenNativeAttempts = (!!session.restartTimer || !session.currentTask) && session.mode === 'native';
+      const wasBetweenNativeAttempts = !!session.restartTimer || (!session.currentTask && !session.nativeAttemptActive);
       session.stopRequested = true;
       if (session.restartTimer) clearTimeout(session.restartTimer);
       session.restartTimer = null;
@@ -502,7 +669,17 @@
         return session.completion;
       }
       session.stopPromise = (async function () {
-        if (session.mode === 'native') {
+        if (session.nativeEvents) {
+          if (session.currentTask) {
+            try { await withTimeout(session.currentTask, stopCallTimeoutMs); } catch (_) { /* start may already have rejected */ }
+          }
+          if (isActive(session) && session.nativeAttemptActive) {
+            try { await withTimeout(nativeSpeech.stop(), stopCallTimeoutMs); } catch (_) { /* bounded native stop */ }
+            try { await withTimeout(session.nativeAttemptDone, stopResultTimeoutMs); }
+            catch (_) { finish(session, null, true); }
+          }
+          if (isActive(session)) finish(session, null, false);
+        } else if (session.mode === 'native') {
           try { await withTimeout(nativeSpeech.stop(), stopCallTimeoutMs); } catch (_) { /* bounded stop guard */ }
         } else if (session.recognition) {
           try { session.recognition.stop(); } catch (_) { /* onend or timeout will finish */ }

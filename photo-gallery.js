@@ -135,8 +135,8 @@
     });
 
     stage.addEventListener('pointerdown', function (event) {
-      if (event.target !== image) return;
-      stage.setPointerCapture(event.pointerId);
+      if (overlay.hidden || event.button != null && event.button !== 0) return;
+      try { stage.setPointerCapture(event.pointerId); } catch (_) { /* capture is optional when a WebView cancels a touch */ }
       pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
       if (pointers.size === 1) gestureStart = { x: event.clientX, y: event.clientY, offsetX: offsetX, offsetY: offsetY };
       if (pointers.size === 2) {

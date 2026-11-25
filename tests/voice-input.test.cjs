@@ -57,7 +57,7 @@ test('native recognition continues after results and stop keeps the final phrase
     stop() { if (finishThird) finishThird({ matches: ['МДФ два листа'] }); return Promise.resolve(); }
   };
   const controller = voice.createRecognitionController({ nativeSpeech: native, restartDelayMs: 5, onSegment: text => segments.push(text) });
-  assert.equal(controller.startNative(), true);
+  assert.equal(await controller.startNative(), true);
   for (let i = 0; i < 40 && starts < 3; i += 1) await wait(5);
   assert.equal(starts, 3, 'recognizer restarted after each completed Android phrase');
   const result = await controller.stop();
@@ -127,4 +127,115 @@ test('browser recognition restarts after short pauses and stops cleanly', async 
   assert.deepEqual(segments, ['Кухня Иванова', 'ЛДСП пять листов']);
   assert.equal(controller.active, false);
   assert.equal(instances[1].onresult, null, 'browser callbacks are detached after stop');
+});
+
+function createEventNative() {
+  const listeners = new Map();
+  const calls = [];
+  const native = {
+    addListener(name, callback) {
+      if (!listeners.has(name)) listeners.set(name, new Set());
+      listeners.get(name).add(callback);
+      return Promise.resolve({ remove() { listeners.get(name).delete(callback); } });
+    },
+    start(options) { calls.push(options); return Promise.resolve({}); },
+    stop() {
+      return Promise.resolve();
+    },
+    emit(name, event) {
+      for (const callback of Array.from(listeners.get(name) || [])) callback(event);
+    },
+    get calls() { return calls; },
+    listenerCount() { return Array.from(listeners.values()).reduce((count, items) => count + items.size, 0); }
+  };
+  return native;
+}
+
+test('native partial events keep dictation alive across pauses and preserve the final phrase on stop', async () => {
+  const native = createEventNative();
+  const segments = [];
+  const partials = [];
+  const controller = voice.createRecognitionController({
+    nativeSpeech: native,
+    restartDelayMs: 5,
+    onSegment: text => segments.push(text),
+    onPartial: text => partials.push(text)
+  });
+
+  assert.equal(await controller.startNative(), true);
+  assert.equal(native.calls[0].language, 'ru-RU');
+  assert.equal(native.calls[0].partialResults, true, 'Android uses the plugin event stream, not one-shot results');
+  native.emit('listeningState', { status: 'started' });
+  native.emit('partialResults', { matches: ['Кухня'], isFinal: false });
+  assert.deepEqual(segments, [], 'interim speech is not committed as a complete segment');
+  native.emit('listeningState', { status: 'stopped' });
+  native.emit('partialResults', { matches: ['Кухня Иван'], isFinal: false });
+  await wait(10);
+  assert.equal(native.calls.length, 1, 'an interim hypothesis after onEndOfSpeech waits for Android final results');
+  native.emit('partialResults', { matches: ['Кухня Иванова'], isFinal: true });
+
+  for (let i = 0; i < 40 && native.calls.length < 2; i += 1) await wait(5);
+  assert.equal(native.calls.length, 2, 'a final result after a short pause starts another attempt');
+  native.emit('partialResults', { matches: ['МДФ два листа'], isFinal: false });
+  const stopping = controller.stop();
+  await wait(5);
+  native.emit('partialResults', { matches: ['МДФ два листа'], isFinal: true });
+  await stopping;
+
+  assert.deepEqual(segments, ['Кухня Иванова', 'МДФ два листа']);
+  assert.deepEqual(partials, ['Кухня', 'Кухня Иван', 'МДФ два листа']);
+  assert.equal(controller.active, false);
+  assert.equal(native.listenerCount(), 0, 'all plugin listeners are removed when the session ends');
+});
+
+test('native active errors retry transient service failures and surface fatal permission errors', async () => {
+  const native = createEventNative();
+  let ended;
+  const states = [];
+  const controller = voice.createRecognitionController({
+    nativeSpeech: native,
+    restartDelayMs: 5,
+    onState: state => states.push(state),
+    onEnd: outcome => { ended = outcome; }
+  });
+
+  await controller.startNative();
+  native.emit('recognitionError', { code: 11, message: 'Server disconnected' });
+  for (let i = 0; i < 40 && native.calls.length < 2; i += 1) await wait(5);
+  assert.equal(native.calls.length, 2, 'a transient native service disconnect is retried');
+  native.emit('recognitionError', { code: 9, message: 'Insufficient permissions' });
+  for (let i = 0; i < 40 && !ended; i += 1) await wait(5);
+  assert.equal(controller.active, false, 'a fatal permission error returns the controller to idle');
+  assert.equal(ended.error.code, 9);
+  assert.equal(states.at(-1).active, false);
+  assert.equal(native.listenerCount(), 0);
+});
+
+test('native repeated start-stop-start cycles use fresh listeners and preserve stop results', async () => {
+  const native = createEventNative();
+  const segments = [];
+  const controller = voice.createRecognitionController({ nativeSpeech: native, restartDelayMs: 5, onSegment: text => segments.push(text) });
+
+  await controller.startNative();
+  native.emit('partialResults', { matches: ['Первый заказ'], isFinal: false });
+  const firstStop = controller.stop();
+  await wait(5);
+  native.emit('partialResults', { matches: ['Первый заказ'], isFinal: true });
+  await firstStop;
+  assert.equal(controller.active, false);
+  assert.equal(native.listenerCount(), 0);
+
+  await controller.startNative();
+  assert.equal(controller.active, true);
+  native.emit('listeningState', { status: 'stopped' });
+  native.emit('partialResults', { matches: ['Второй заказ'], isFinal: true });
+  for (let i = 0; i < 40 && native.calls.length < 3; i += 1) await wait(5);
+  assert.equal(native.calls.length, 3, 'the new session restarted after its final result');
+  native.emit('partialResults', { matches: ['Последняя фраза'], isFinal: false });
+  const finalStop = controller.stop();
+  await wait(5);
+  native.emit('partialResults', { matches: ['Последняя фраза'], isFinal: true });
+  await finalStop;
+  assert.deepEqual(segments, ['Первый заказ', 'Второй заказ', 'Последняя фраза']);
+  assert.equal(native.listenerCount(), 0);
 });

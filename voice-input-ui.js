@@ -13,6 +13,7 @@
     const protectedFields = new Set();
     let pending = Object.create(null);
     let transcriptParts = [];
+    let currentPartial = '';
     let starting = false;
     let review;
     let transcriptView;
@@ -72,6 +73,7 @@
       });
     }
     function mergeText(segment) {
+      currentPartial = '';
       transcriptParts.push(segment);
       const parsed = voice.parse(segment, catalog());
       pending = voice.mergeSuggestions(pending, parsed);
@@ -79,7 +81,7 @@
       status.textContent = 'Распознано. Можно продолжить диктовку или остановить её, затем проверьте предложения ниже.';
     }
     function renderReview() {
-      const text = transcriptParts.join(' ').trim();
+      const text = transcriptParts.concat(currentPartial ? [currentPartial] : []).join(' ').trim();
       const entries = Object.keys(pending);
       review.hidden = !text && !entries.length;
       transcriptView.value = text;
@@ -141,6 +143,7 @@
     review.querySelector('#voiceDiscard').addEventListener('click', function () {
       pending = Object.create(null);
       transcriptParts = [];
+      currentPartial = '';
       review.hidden = true;
       status.textContent = 'Голосовые предложения закрыты без заполнения. Можно исправить карточку вручную.';
     });
@@ -149,8 +152,13 @@
       nativeSpeech: nativeSpeech,
       getBrowserRecognition: function () { return window.SpeechRecognition || window.webkitSpeechRecognition; },
       onSegment: mergeText,
+      onPartial: function (text) {
+        currentPartial = text;
+        renderReview();
+        status.textContent = 'Распознаю фразу. Продолжайте говорить; короткие паузы не завершают диктовку.';
+      },
       onState: function (state) {
-        button.disabled = false;
+        button.disabled = !!state.initializing || !!state.stopping;
         button.textContent = state.active ? '⏹ Остановить диктовку' : '🎙️ Надиктовать заказ';
         button.setAttribute('aria-pressed', String(state.active));
         if (state.waiting && state.active) status.textContent = state.transientError ? 'Короткая пауза распознавания. Повторяю запуск автоматически…' : 'Фраза обработана. Перезапускаю распознавание; можно говорить дальше или остановить диктовку.';
@@ -181,7 +189,7 @@
           let permission = await nativeSpeech.checkPermissions();
           if (!permission || permission.speechRecognition !== 'granted') permission = await nativeSpeech.requestPermissions();
           if (!permission || permission.speechRecognition !== 'granted') throw new Error('Microphone permission denied.');
-          if (!controller.startNative()) throw new Error('Speech recognition could not start.');
+          if (!await controller.startNative()) throw new Error('Speech recognition could not start.');
         } else if (!controller.startBrowser()) throw new Error('Speech recognition is unavailable in this browser.');
         if (controller.active) status.textContent = transcriptParts.length ? 'Продолжаю диктовку этого заказа. Нажмите «Остановить диктовку», когда закончите.' : 'Слушаю по-русски. После короткой паузы продолжу автоматически; нажмите «Остановить диктовку», когда закончите.';
       } catch (error) {
@@ -217,12 +225,14 @@
       if (event.target && event.target.id === 'clear') {
         pending = Object.create(null);
         transcriptParts = [];
+        currentPartial = '';
         review.hidden = true;
         setTimeout(clearProtection, 0);
       }
       if (event.target && event.target.id === 'save') {
         setTimeout(function () {
           transcriptParts = [];
+          currentPartial = '';
           pending = Object.create(null);
           review.hidden = true;
         }, 0);
@@ -233,6 +243,7 @@
       window.loadOrder = function () {
         pending = Object.create(null);
         transcriptParts = [];
+        currentPartial = '';
         review.hidden = true;
         protectedFields.clear();
         const result = loadOrder.apply(this, arguments);
