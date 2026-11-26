@@ -26,14 +26,20 @@ photo.addEventListener('change',async e=>{for(const f of e.target.files){const u
  photos.forEach(async(p,i)=>{if(p.storage_path){try{const {data,error}=await sb.storage.from('order-photos').createSignedUrl(p.storage_path,3600);const img=document.getElementById('photoimg'+i);if(img&&data?.signedUrl&&!error)img.src=data.signedUrl;else if(img)img.alt='Фото не удалось загрузить';}catch(e){const img=document.getElementById('photoimg'+i);if(img)img.alt='Фото не удалось загрузить';}}});
 }
  document.addEventListener('click', e => {
-  if (!e.target.matches('img')) return;
+  const target = e.target;
+  if (!(target instanceof HTMLImageElement) || !target.closest('#photoPreview')) return;
 
   const viewer = document.createElement('div');
-  viewer.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:99999;display:flex;align-items:center;justify-content:center;padding:15px';
+  viewer.id = 'photoViewer';
+  viewer.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:99999;display:flex;align-items:center;justify-content:center;padding:15px;cursor:zoom-out';
 
-  viewer.innerHTML = `<img src="${e.target.src}" style="max-width:100%;max-height:90vh;object-fit:contain">`;
+  const enlarged = document.createElement('img');
+  enlarged.src = target.currentSrc || target.src;
+  enlarged.alt = target.alt || 'Фото заказа';
+  enlarged.style.cssText = 'max-width:100%;max-height:90vh;object-fit:contain';
+  viewer.appendChild(enlarged);
 
-  viewer.onclick = () => viewer.remove();
+  viewer.addEventListener('click', () => viewer.remove());
   document.body.appendChild(viewer);
 });
 function current(){return {orderNo:orderNo.value||nextOrderNo(),address:address.value,prepayment:val('prepayment'),orderTotal:val('orderTotal'),status:orderStatus.value,installDate:installDate.value,client:client.value,phone:phone.value,title:title.value,note:note.value,materials:{ld:val('ld'),md:val('md')},edge:{e04:val('e04'),e19:val('e19'),e219:val('e219'),e235:val('e235')},hardware:hw.map((x,i)=>({name:x[0],qty:val('hw'+i)})),expenses:{work:val('work'),transport:val('transport'),lifting:val('lifting'),install:val('install')},photos,calc:calc(),date:new Date().toLocaleString('ru-RU')}}
